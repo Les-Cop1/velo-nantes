@@ -1,8 +1,7 @@
 import os
 
-from velo_nantes import database, weather_code
+from velo_nantes import database, weather_code, api
 from dotenv import load_dotenv
-import requests
 from datetime import datetime
 from rich import print
 
@@ -13,29 +12,21 @@ load_dotenv()
 
 
 def run():
+    """Run the velo-nantes script"""
     start_time = datetime.now()
     print("[bold green]Starting script[/bold green]")
     # Database connection
-    try:
-        db = database.connect(
-            os.environ["MONGO_CONNECTION_STRING"], os.environ["MONGO_DATABASE_NAME"])
-    except:
-        raise Exception("Could not connect to database")
+    mongo = database.connect(
+        os.environ["MONGO_CONNECTION_STRING"], os.environ["MONGO_DATABASE_NAME"])
 
-    record_collection = db["records"]
-    date_collection = db["dates"]
-    datetime_collection = db["datetimes"]
-    circuit_collection = db["circuits"]
+    record_collection = mongo["records"]
+    date_collection = mongo["dates"]
+    datetime_collection = mongo["datetimes"]
+    circuit_collection = mongo["circuits"]
 
     # Drop tables
-    print("[bold yellow]Dropping tables[/bold yellow]")
-    try:
-        record_collection.drop()
-        date_collection.drop()
-        datetime_collection.drop()
-        circuit_collection.drop()
-    except:
-        raise Exception("Could not drop tables")
+    database.drop_tables(
+        [record_collection, date_collection, datetime_collection, circuit_collection])
 
     records = []
     dates = {}
@@ -43,22 +34,9 @@ def run():
     circuits = {}
 
     # Get records
-    print("[bold yellow]Getting records[/bold yellow]")
-    payload = {
-        "dataset": "244400404_comptages-velo-nantes-metropole",
-        "rows": int(os.environ["RECORD_NUMBER"]),
-        "sort": "jour",
-    }
-    step_start = datetime.now()
-    try:
-        response = requests.get(
-            "https://data.nantesmetropole.fr/api/records/1.0/search", params=payload)
-        data_nantes = response.json()["records"]
-    except:
-        raise Exception(
-            f"[bold red]Could not get data from Nantes Metropole (step failed after {datetime.now() - step_start})[/bold red]")
+    data_nantes = api.get_records()
 
-    print("[bold yellow]Records processing[/bold yellow]")
+    print("Records processing")
 
     min_date = datetime.fromisoformat(data_nantes[0]["fields"]["jour"])
     max_date = datetime.fromisoformat(data_nantes[0]["fields"]["jour"])
@@ -116,27 +94,12 @@ def run():
                 "circuit_num": data["boucle_num"],
                 "circuit_libelle": data["libelle"]
             }
+    print("[green]Records processed[/green]")
 
     # get weather
-    print("[bold yellow]Getting weather[/bold yellow]")
-    payload = {
-        "latitude": 47.22,
-        "longitude": -1.55,
-        "start_date": min_date.isoformat().split('T')[0],
-        "end_date": max_date.isoformat().split('T')[0],
-        "timezone": "Europe/Paris",
-    }
-    step_start = datetime.now()
-    try:
-        response = requests.get(
-            "https://archive-api.open-meteo.com/v1/archive?hourly=temperature_2m,weathercode,relativehumidity_2m,cloudcover,precipitation&daily=sunrise,sunset",
-            params=payload)
-        data_weather = response.json()
-    except:
-        raise Exception(
-            f"[bold red]Could not get weather data (step failed after {datetime.now() - step_start})[/bold red]")
+    data_weather = api.get_weather(min_date, max_date)
 
-    print("[bold yellow]Weather processing[/bold yellow]")
+    print("Weather processing")
     for index, hour in enumerate(data_weather["hourly"]["time"]):
         datetime_string = datetime.fromisoformat(hour).isoformat()
         if datetime_string not in datetimes:
@@ -157,18 +120,15 @@ def run():
             data_weather["daily"]["sunrise"][index]).isoformat()
         dates[day]["sunset"] = datetime.fromisoformat(
             data_weather["daily"]["sunset"][index]).isoformat()
+    print("[green]Weather processed[/green]")
 
     # Insert datas
-    print("[bold yellow]Inserting data[/bold yellow]")
-    step_start = datetime.now()
-    try:
-        record_collection.insert_many(records)
-        date_collection.insert_many(dates.values())
-        datetime_collection.insert_many(datetimes.values())
-        circuit_collection.insert_many(circuits.values())
-    except:
-        raise Exception(
-            f"[bold red]Could not insert datas (step failed after {datetime.now() - step_start})[/bold red]")
+    print("Inserting data")
+    database.insert_in_collection(record_collection, records)
+    database.insert_in_collection(date_collection, dates.values())
+    database.insert_in_collection(datetime_collection, datetimes.values())
+    database.insert_in_collection(circuit_collection, circuits.values())
+    print("[green]Data inserted[/green]")
 
     end_time = datetime.now()
 
