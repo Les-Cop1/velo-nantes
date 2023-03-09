@@ -49,12 +49,14 @@ def run():
         "rows": int(os.environ["RECORD_NUMBER"]),
         "sort": "jour",
     }
+    step_start = datetime.now()
     try:
         response = requests.get(
             "https://data.nantesmetropole.fr/api/records/1.0/search", params=payload)
         data_nantes = response.json()["records"]
     except:
-        raise Exception("Could not get data from Nantes Metropole")
+        raise Exception(
+            f"[bold red]Could not get data from Nantes Metropole (step failed after {datetime.now() - step_start})[/bold red]")
 
     print("[bold yellow]Records processing[/bold yellow]")
 
@@ -124,13 +126,15 @@ def run():
         "end_date": max_date.isoformat().split('T')[0],
         "timezone": "Europe/Paris",
     }
+    step_start = datetime.now()
     try:
         response = requests.get(
             "https://archive-api.open-meteo.com/v1/archive?hourly=temperature_2m,weathercode,relativehumidity_2m,cloudcover,precipitation&daily=sunrise,sunset",
             params=payload)
         data_weather = response.json()
     except:
-        raise Exception("[bold red]Could not get weather data[/bold red]")
+        raise Exception(
+            f"[bold red]Could not get weather data (step failed after {datetime.now() - step_start})[/bold red]")
 
     print("[bold yellow]Weather processing[/bold yellow]")
     for index, hour in enumerate(data_weather["hourly"]["time"]):
@@ -156,13 +160,15 @@ def run():
 
     # Insert datas
     print("[bold yellow]Inserting data[/bold yellow]")
+    step_start = datetime.now()
     try:
         record_collection.insert_many(records)
         date_collection.insert_many(dates.values())
         datetime_collection.insert_many(datetimes.values())
         circuit_collection.insert_many(circuits.values())
     except:
-        raise Exception("Could not insert datas")
+        raise Exception(
+            f"[bold red]Could not insert datas (step failed after {datetime.now() - step_start})[/bold red]")
 
     end_time = datetime.now()
 
