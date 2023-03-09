@@ -23,20 +23,22 @@ def run():
         raise Exception("Could not connect to database")
 
     record_collection = db["records"]
-    day_collection = db["days"]
+    date_collection = db["dates"]
+    datetime_collection = db["datetimes"]
     circuit_collection = db["circuits"]
 
     # Drop tables
     print("[bold yellow]Dropping tables[/bold yellow]")
     try:
         record_collection.drop()
-        day_collection.drop()
+        date_collection.drop()
+        datetime_collection.drop()
         circuit_collection.drop()
     except:
         raise Exception("Could not drop tables")
 
     records = []
-    days = []
+    datetimes = []
 
     # Get records
     print("[bold yellow]Getting records[/bold yellow]")
@@ -81,10 +83,13 @@ def run():
                 datetime_string = datetime(int(date_array[0]), int(date_array[1]), int(date_array[2]),
                                            hour=int(hour),
                                            minute=0, second=0, microsecond=0, tzinfo=None, fold=0).isoformat()
-                days.append({
+
+                date_collection.find_one_and_update({"date": data["jour"]}, {
+                    "$set": {"date": data["jour"], "day_of_week": data["jour_de_la_semaine"], "is_holiday": is_holiday, "sunrise": "unknown", "sunset": "unknown"}}, upsert=True)
+
+                datetimes.append({
+                    "date": data["jour"],
                     "datetime": datetime_string,
-                    "day_of_week": data["jour_de_la_semaine"],
-                    "is_holiday": is_holiday,
                     "temperature": "unknown",
                     "humidity": "unknown",
                     "cloud_cover": "unknown",
@@ -111,7 +116,7 @@ def run():
     print("[bold yellow]Inserting records[/bold yellow]")
     try:
         record_collection.insert_many(records)
-        day_collection.insert_many(days)
+        datetime_collection.insert_many(datetimes)
     except:
         raise Exception("Could not insert datas")
 
@@ -122,10 +127,11 @@ def run():
         "longitude": -1.55,
         "start_date": min_date.isoformat().split('T')[0],
         "end_date": max_date.isoformat().split('T')[0],
+        "timezone": "Europe/Paris",
     }
     try:
         response = requests.get(
-            "https://archive-api.open-meteo.com/v1/archive?hourly=temperature_2m,weathercode,relativehumidity_2m,cloudcover,precipitation",
+            "https://archive-api.open-meteo.com/v1/archive?hourly=temperature_2m,weathercode,relativehumidity_2m,cloudcover,precipitation&daily=sunrise,sunset",
             params=payload)
         data_weather = response.json()
     except:
@@ -135,7 +141,7 @@ def run():
     for index, hour in enumerate(data_weather["hourly"]["time"]):
         datetime_string = datetime.fromisoformat(hour).isoformat()
         try:
-            day_collection.update_many({"datetime": datetime_string}, {
+            datetime_collection.update_many({"datetime": datetime_string}, {
                 "$set": {
                     "temperature": data_weather["hourly"]["temperature_2m"][index],  # °C
                     "humidity": data_weather["hourly"]["relativehumidity_2m"][index],  # percentage
@@ -146,6 +152,17 @@ def run():
         except:
             print(
                 f"[bold red]Error while updating record {datetime_string}[/bold red]")
+
+    for index, day in enumerate(data_weather["daily"]["time"]):
+        try:
+            date_collection.update_many({"date": day}, {
+                "$set": {
+                    "sunrise": datetime.fromisoformat(data_weather["daily"]["sunrise"][index]).isoformat(),
+                    "sunset": datetime.fromisoformat(data_weather["daily"]["sunset"][index]).isoformat(),
+                }})
+        except:
+            print(
+                f"[bold red]Error while updating record {day}[/bold red]")
 
     end_time = datetime.now()
 
