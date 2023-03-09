@@ -38,7 +38,9 @@ def run():
         raise Exception("Could not drop tables")
 
     records = []
-    datetimes = []
+    dates = {}
+    datetimes = {}
+    circuits = {}
 
     # Get records
     print("[bold yellow]Getting records[/bold yellow]")
@@ -84,10 +86,15 @@ def run():
                                            hour=int(hour),
                                            minute=0, second=0, microsecond=0, tzinfo=None, fold=0).isoformat()
 
-                date_collection.find_one_and_update({"date": data["jour"]}, {
-                    "$set": {"date": data["jour"], "day_of_week": data["jour_de_la_semaine"], "is_holiday": is_holiday, "sunrise": "unknown", "sunset": "unknown"}}, upsert=True)
+                dates[data["jour"]] = {
+                    "date": data["jour"],
+                    "day_of_week": data["jour_de_la_semaine"],
+                    "is_holiday": is_holiday,
+                    "sunrise": "unknown",
+                    "sunset": "unknown"
+                }
 
-                datetimes.append({
+                datetimes[datetime_string] = {
                     "date": data["jour"],
                     "datetime": datetime_string,
                     "temperature": "unknown",
@@ -95,30 +102,18 @@ def run():
                     "cloud_cover": "unknown",
                     "precipitation": "unknown",
                     "weather": "unknown"
-                })
+                }
 
                 records.append({
                     "datetime": datetime_string,
                     "circuit_num": data["boucle_num"],
                     "bikes": data[hour],
                 })
-
-        try:
-            if "libelle" in data:
-                circuit_collection.find_one_and_update({"circuit_num": data["boucle_num"]}, {
-                    "$set": {"circuit_libelle": data["boucle_libelle"]}}, upsert=True)
-        except:
-            print(data)
-            print(
-                f"[bold red]Error while inserting circuit {data['boucle_num']}[/bold red]")
-
-    # Insert datas
-    print("[bold yellow]Inserting records[/bold yellow]")
-    try:
-        record_collection.insert_many(records)
-        datetime_collection.insert_many(datetimes)
-    except:
-        raise Exception("Could not insert datas")
+        if "libelle" in data:
+            circuits[data["boucle_num"]] = {
+                "circuit_num": data["boucle_num"],
+                "circuit_libelle": data["libelle"]
+            }
 
     # get weather
     print("[bold yellow]Getting weather[/bold yellow]")
@@ -140,30 +135,36 @@ def run():
     print("[bold yellow]Weather processing[/bold yellow]")
     for index, hour in enumerate(data_weather["hourly"]["time"]):
         datetime_string = datetime.fromisoformat(hour).isoformat()
-        try:
-            datetime_collection.update_many({"datetime": datetime_string}, {
-                "$set": {
-                    "temperature": data_weather["hourly"]["temperature_2m"][index],  # °C
-                    "humidity": data_weather["hourly"]["relativehumidity_2m"][index],  # percentage
-                    "cloud_cover": data_weather["hourly"]["cloudcover"][index],  # percentage
-                    "precipitation": data_weather["hourly"]["precipitation"][index],  # mm
-                    "weather": weather_code.code_to_string(data_weather["hourly"]["weathercode"][index])  # string
-                }})
-        except:
-            print(
-                f"[bold red]Error while updating record {datetime_string}[/bold red]")
+        if datetime_string not in datetimes:
+            continue
+
+        datetimes[datetime_string]["temperature"] = data_weather["hourly"]["temperature_2m"][index]
+        datetimes[datetime_string]["humidity"] = data_weather["hourly"]["relativehumidity_2m"][index]
+        datetimes[datetime_string]["cloud_cover"] = data_weather["hourly"]["cloudcover"][index]
+        datetimes[datetime_string]["precipitation"] = data_weather["hourly"]["precipitation"][index]
+        datetimes[datetime_string]["weather"] = weather_code.code_to_string(
+            data_weather["hourly"]["weathercode"][index])
 
     for index, day in enumerate(data_weather["daily"]["time"]):
-        try:
-            date_collection.update_many({"date": day}, {
-                "$set": {
-                    "sunrise": datetime.fromisoformat(data_weather["daily"]["sunrise"][index]).isoformat(),
-                    "sunset": datetime.fromisoformat(data_weather["daily"]["sunset"][index]).isoformat(),
-                }})
-        except:
-            print(
-                f"[bold red]Error while updating record {day}[/bold red]")
+        if day not in dates:
+            continue
+
+        dates[day]["sunrise"] = datetime.fromisoformat(
+            data_weather["daily"]["sunrise"][index]).isoformat()
+        dates[day]["sunset"] = datetime.fromisoformat(
+            data_weather["daily"]["sunset"][index]).isoformat()
+
+    # Insert datas
+    print("[bold yellow]Inserting data[/bold yellow]")
+    try:
+        record_collection.insert_many(records)
+        date_collection.insert_many(dates.values())
+        datetime_collection.insert_many(datetimes.values())
+        circuit_collection.insert_many(circuits.values())
+    except:
+        raise Exception("Could not insert datas")
 
     end_time = datetime.now()
 
-    print(f"[bold green]Ending script ({len(records)} records in {end_time - start_time})[/bold green]")
+    print(
+        f"[bold green]Ending script ({len(records)} records in {end_time - start_time})[/bold green]")
