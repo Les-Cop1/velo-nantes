@@ -31,14 +31,14 @@ def get_weather(min_date, max_date):
     payload = {
         "latitude": 47.22,
         "longitude": -1.55,
-        "start_date": min_date.isoformat().split('T')[0],
-        "end_date": max_date.isoformat().split('T')[0],
+        "start_date": min_date.strftime('%Y-%m-%d'),
+        "end_date": max_date.strftime('%Y-%m-%d'),
         "timezone": "Europe/Paris",
     }
     try:
         response = requests.get(
             "https://archive-api.open-meteo.com/v1/archive?hourly=temperature_2m,weathercode,relativehumidity_2m,cloudcover,precipitation&daily=sunrise,sunset",
-            params=payload, timeout=20*60)
+            params=payload, timeout=5*60)
         print("[green]Weather retrieved[/green]")
         return response.json()
     except requests.exceptions.RequestException as exception:
