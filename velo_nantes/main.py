@@ -79,7 +79,6 @@ def run():
                 }
 
                 datetimes[datetime_obj.isoformat()] = {
-                    "date": current_day,
                     "datetime": datetime_obj,
                     "temperature": None,
                     "humidity": None,
